@@ -1,0 +1,199 @@
+component ss_constant_chamber
+% Constant Volume Hydraulic Chamber: 1.0 : fixed
+% The block represents a fixed-volume chamber with rigid or flexible walls
+% used in hydraulic valves, pumps, manifolds, pipes, hoses, and so on.
+% Use this block in models where you have to account for fluid
+% compressibility.
+%
+% The block has one hydraulic conserving port associated with the chamber
+% inlet. The block positive direction is from its port to the reference
+% point. This means that the flow rate is positive if it flows into
+% the chamber.
+
+% Copyright 2020 Astori Sp. z o.o.
+
+nodes
+    A = subsea.ss_hydraulic; % A:top
+end
+
+parameters
+    % Mask parameter visibilities are customized by a second file that is
+    % not available to users. If you copy and publish this Simscape(TM) file
+    % inside your own custom library, then drop-down menus and selective
+    % parameter visibilities will be lost.
+    
+    ch_sp            = true;	% Chamber spec. by volume (true) or L and D (false)
+    ch_volume        = { 1e-4,	  'm^3'   };	% Chamber volume
+    d_in             = { 5.17,    'mm'    };	% Internal diameter
+    D_out            = { 9.53,    'mm'    };    % External diameter
+    length           = { 1,       'm'     };	% Cylindrical chamber length
+    p_init           = { 0,       'bar'   };    % Initial pressure (topside)
+end
+
+if ch_sp 
+  % Hide inapplicable parameters
+    annotations
+       [d_in, D_out, length] : ExternalAccess=none;
+    end
+else
+    annotations
+       [ch_volume] : ExternalAccess=none;
+    end
+end
+
+parameters
+    wall_type        = true;                    % Is wall rigid?
+end
+
+if ch_sp % if channel defined by volume, then only rigid available
+  % Hide inapplicable parameters
+    annotations
+      [wall_type] : ExternalAccess=none;
+      %[pr_r_coef, Young_modulus, time_const] : ExternalAccess=none;
+    end
+end 
+
+parameters
+    %pr_r_coef        = { 1.2e-12, 'm/Pa'  };    % Static pressure-diameter coefficient
+    Young_modulus    = { 195,     'GPa'   };    % Wall modulus of elasticity 
+    time_const       = { 0.01,    's'     };	% Viscoelastic process time constant
+    k_sh             = { 1.4,     '1'     };	% Specific heat ratio
+end
+
+if wall_type % if wall is not flexible
+  % Hide inapplicable parameters
+    annotations
+      [Young_modulus, time_const] : ExternalAccess=none;
+      %[pr_r_coef, Young_modulus, time_const] : ExternalAccess=none;
+    end
+end 
+
+parameters(Access=private)
+    p_a       = {101325, 'Pa' }; % Atmospheric pressure
+    p_min     = {-1,     'atm'}; % -1 atm
+    v_chamber = if ch_sp == 1, ch_volume else pi*d_in*d_in/4*length end; % Chamber volume
+end    
+
+if (ch_sp ==0)&(wall_type ==0)
+    parameters(Access=private)    
+        WT        = (D_out-d_in)/2; % Wall thickness
+        pr_r_coef = (d_in*d_in)/(2*WT*Young_modulus);
+        diam_init = p_init*pr_r_coef;
+    end
+end
+
+
+variables
+    % Differential variables
+    %diameter_incr = {value = {0, 'm' }, priority = priority.high}; % Diameter increase
+        
+    % Algebraic
+    flow_rate = {0e-3,   'm^3/s'};  % Volumetric flow rate into chamber
+end
+
+if (ch_sp ==0)&(wall_type ==0)
+    variables(Access=private)
+        diameter_incr = {value = diam_init, priority = priority.high}; % Diameter increase
+    end   
+else 
+    variables
+       diameter_incr = {value = {0, 'mm' }, priority = priority.high}; % Diameter increase 
+    end
+end
+
+variables(Access=private)
+    pressure      = {value = p_init , priority = priority.high}; % Pressure (gauge)
+    bulk_inst = { 0.8e9 , 'Pa'  };    % Instantaneous bulk modulus
+end
+
+branches
+    flow_rate : A.q -> *;
+end
+
+if ch_sp == 1
+    equations
+        assert(ch_volume > 0)
+    end
+else
+    equations
+        assert(d_in > 0)
+        assert(D_out > 0)
+        assert(length > 0)
+    end
+    if wall_type == 2
+        equations
+            assert(Young_modulus > 0)
+            assert(time_const > 0)
+        end
+    end
+end
+
+equations
+    pressure == A.p;
+    if A.range_error == 1
+        assert(pressure > p_min, Warn=true)
+    elseif A.range_error == 2
+        assert(pressure > p_min)
+    else
+    end
+end
+
+if (ch_sp == 1)|| wall_type == 1	% Rigid walls
+    
+    equations
+        % Assertions
+        assert(k_sh >= 1)
+                
+        let
+            p_abs = p_a + pressure;             % Absolute pressure
+            p_nom = (p_a/p_abs)^(1/k_sh);       % Relative absolute pressure
+            p_den = p_nom*A.bulk/(k_sh*p_abs);
+              
+        in
+            % Variation of volume due to fluid compressibility
+            flow_rate == v_chamber / bulk_inst * pressure.der;
+                                    
+            % Chamber does not expand
+            diameter_incr.der == 0;
+            
+            % Instantaneous bulk modulus
+            bulk_inst == A.bulk*(1+A.alpha*p_nom)/(1+A.alpha*p_den);
+            
+           
+        end
+    end
+    
+else    % Compliant walls
+
+    equations
+        % Assertions
+        assert(k_sh >= 1)
+                
+        let
+            p_abs = p_a + pressure;             % Absolute pressure
+            p_nom = (p_a/p_abs)^(1/k_sh);       % Relative absolute pressure
+            p_den = p_nom*A.bulk/(k_sh*p_abs);
+            volume = pi*(d_in + diameter_incr)^2/4*length;
+            expansion_coeff = (1+pressure/bulk_inst);               % Expansion coefficient
+                   
+            % Variation of volume due to fluid compressibility
+            Vdot1 = volume / bulk_inst * pressure.der;
+
+            % Variation of volume due to wall compliance
+            d_fl_volume_d_diam_incr = 2*pi*(d_in + diameter_incr)/4*length*expansion_coeff;
+            Vdot2 = d_fl_volume_d_diam_incr * diameter_incr.der;
+        
+        in
+            flow_rate == Vdot1 + Vdot2;
+            
+            % Diameter increase with pressure
+            pressure == 1/pr_r_coef*diameter_incr + time_const/pr_r_coef*diameter_incr.der;
+            
+            % Instantaneous bulk modulus
+            bulk_inst == A.bulk*(1+A.alpha*p_nom)/(1+A.alpha*p_den);
+           %coef == pr_r_coef;
+        end
+    end
+            
+end
+end

@@ -1,0 +1,68 @@
+component ss_variable_kv
+% Variable kv Hydraulic Flow Element : 1.0
+% The block models a variable Cv flow element. Cv value depends on the control 
+% signal and can be changed in the range 0-100% (input signal 0-1). Control signal
+% is expected to be computed outside the block and imported via the CS
+% physical signal connection. The flow rate through the orifice is
+% proportional to the orifice area and pressure differential across
+% the orifice.
+%
+% Connections A and B are conserving hydraulic ports associated
+% with the orifice inlet and outlet, respectively. Connection CS is a
+% physical signal port through which an instantaneous control value is provided. 
+% The block positive direction is from port A to port B.
+
+% Copyright 2022 Astori sp. z o.o.
+
+inputs
+    CS = {0, '1'}; % CS:left
+end
+
+nodes
+    A = subsea.ss_hydraulic; % A:left
+    B = subsea.ss_hydraulic; % B:right
+end
+
+parameters
+    ss_location      = true;              % Is located subsea??
+    kv               = {200,   '(m^3)/s'}; % Flow discharge coefficient
+    kv_min           = {1.3e-6, '(m^3)/s'};     % Steady leakage flow coeff.
+end
+
+parameters (Access=private)
+    kv_min_used =  kv_min; % Minimum flow coeeficient
+    %Cv_min_used = if Cv_min == 0, {1e-8, '1'} else Cv_min end; % Minimum flow coeeficient
+    cf         = {1, 'bar'}; % Unit conversion factor
+    water_density= {1000,   'kg/m^3'};
+    SG = A.density/water_density;
+end
+
+variables
+    q = {0e-3, 'm^3/s'}; % Flow rate
+    p = {0,    'Pa'   }; % Pressure differential
+end
+
+branches
+    q : A.q -> B.q;
+end
+
+equations
+    % Assertions
+    assert(kv > 0)
+    %assert(Cv_min_used > 0)
+       
+    
+    let
+        kv_actual=CS*kv;
+        kv_used = if gt(kv_actual, kv_min_used), kv_actual else kv_min_used end;
+        dp = A.p - B.p; 
+        dir = if ge(dp,0), 1 else -1 end
+        % Pressure drop at transition from laminar to turbulent regime
+    in
+        p == A.p - B.p;
+        q == dir*kv_used*sqrt(abs(dp)/(cf*SG));
+       %q == C_d*area*sqrt(2.0/A.density) * p/(p^2 + p_cr^2)^(1/4);
+    end
+end
+
+end

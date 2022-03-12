@@ -1,0 +1,52 @@
+component(Propagation=source) ss_custom_fluid
+% Custom Hydraulic Fluid : 1.0 : fixed
+% The block assigns fluid properties for all components assembled in 
+% a particular loop. The loop detection is performed automatically and the
+% block is considered as part of the loop if it is hydraulically connected
+% to at least one of the loop components. If no Hydraulic Fluid block is
+% connected to the loop, the default properties of the Custom Hydraulic 
+% Fluid block are assigned.
+
+% Copyright 2020 Astori Sp. z o.o.
+
+parameters
+    density             = { 850   , 'kg/m^3' }; % Fluid density
+    sea_density         = { 1025   , 'kg/m^3' }; % Sea water density
+    viscosity_kin       = { 18e-6 , 'm^2/s'  }; % Kinematic viscosity
+    viscosity_subsea    = { 8e-6  , 'm^2/s'  }; % Kinematic viscosity subsea
+    viscosity_topside   = { 2e-6  , 'm^2/s'  }; % Kinematic viscosity topside
+    bulk                = { 0.8e9 , 'Pa'     }; % Bulk modulus at atm. pressure and no gas
+    alpha               = { 0.005 , '1'      }; % Relative amount of trapped air
+    depth               = { 400   , 'm'      }; % Water depth
+    rig_elev            = { 30    , 'm'      }; % Rig elevation
+    range_error         = { 2     , '1'      }; % Absolute pressure below absolute zero in blocks with fluid compressibility 
+end
+
+nodes
+    G = subsea.ss_hydraulic(...
+                density=density, ...
+                sea_density=sea_density, ...
+                viscosity_kin=viscosity_kin, ...
+                viscosity_subsea=viscosity_subsea, ...
+                viscosity_topside=viscosity_topside, ...
+                bulk=bulk, ...
+                alpha=alpha, ...
+                depth=depth, ...
+                rig_elev=rig_elev, ...
+                range_error=range_error); % :right
+end
+
+equations
+    assert(density > 0)
+    assert(sea_density > 0)
+    assert(viscosity_kin > 0)
+    assert(viscosity_subsea > 0)
+    assert(viscosity_topside > 0)
+    assert(bulk > 0)
+    assert(alpha >= 0)
+    assert(alpha < 1)
+    assert(depth >= 0)
+    assert(rig_elev >= 0)  
+end
+
+end

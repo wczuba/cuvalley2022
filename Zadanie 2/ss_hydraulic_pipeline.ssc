@@ -1,0 +1,111 @@
+%import subsea.ss_hydraulic.*;   % ss hydraulic elements
+
+component ss_hydraulic_pipeline
+% Hydraulic Pipeline: 1.0
+%
+% This block models hydraulic pipelines with circular cross sections.
+% The block accounts for friction loss along the pipe length and for fluid 
+% compressibility, and by extent of idealization it takes an intermediate 
+% place between the Resistive Tube and the Segmented Pipeline blocks. 
+% The block does not account for fluid inertia. The model is built of 
+% Resistive Tube and Constant Volume Chamber building blocks.
+%
+% Connections A and B are hydraulic conserving ports. The block positive 
+% direction is from port A to port B. This means that the flow rate is 
+% positive if fluid flows from A to B, and the pressure loss is determined 
+% as p = p_A - p_B.
+%
+% Copyright 2020 Astori sp. z o.o
+
+nodes
+    A = subsea.ss_hydraulic; % A: left
+    B = subsea.ss_hydraulic; % B: right
+end
+
+nodes (Access=protected, ExternalAccess=none)
+    HC = subsea.ss_hydraulic; % internal node between resistive tubesl
+end
+
+parameters
+    % Mask parameter visibilities are customized by a second file that is
+    % not available to users. If you copy and publish this Simscape(TM) file
+    % inside your own custom library, then drop-down menus and selective
+    % parameter visibilities will be lost.
+    
+    ss_location = true;           % Is located subsea??
+    on_seabed = false;            % Is located on seabed??
+    d_in      = { 5.17, 'mm' };   % Tube internal diameter
+    D_out     = { 9.53, 'mm' };   % External diameter
+    length    = { 5, 'm' };       % Tube length
+    roughness = { 15e-6, 'm' };   % Internal surface roughness height
+    Re_lam    = { 2000, '1'  };   % Laminar flow upper margin
+    Re_turb   = { 4000, '1'  };   % Turbulent flow lower margin
+    wall_type = true;             % Is wall rigid?
+    p_init    = { 0,   'bar' };   % Initial pressure (topside)
+end
+
+parameters
+    %pr_r_coef        = { 1.2e-12, 'm/Pa'  };    % Static pressure-diameter coefficient
+    Young_modulus    = { 195,     'GPa'   };    % Wall modulus of elasticity 
+    time_const       = { 0.01,    's'     };	% Viscoelastic process time constant
+    k_sh             = { 1.4,     '1'     };	% Specific heat ratio
+end
+
+if wall_type % if wall is not flexible
+  % Hide inapplicable parameters
+    annotations
+      [Young_modulus, time_const] : ExternalAccess=none;
+      %[pr_r_coef, Young_modulus, time_const] : ExternalAccess=none;
+    end
+end 
+
+
+% !!! Additional parameters to set inside blocks
+
+% ch_sp            = true;	% Chamber spec. by volume (true) or L and D (false)
+
+parameters(Access=private)
+    p_a       = {101325, 'Pa' }; % Atmospheric pressure
+    p_min     = {-1,     'atm'}; % -1 atm
+    v_chamber = pi*d_in*d_in/4*length; % Chamber volume
+    l_half = length/2;
+    g         = {9.81, 'm/s^2'} % Gravitational acceleration
+end    
+
+if wall_type ==0
+    parameters(Access=private)    
+        WT        = (D_out-d_in)/2; % Wall thickness
+        pr_r_coef = (d_in*d_in)/(2*WT*Young_modulus); 
+    end
+end
+
+if on_seabed ==0
+    parameters(Access=private)    
+        p_init_used = p_init; % Wall thickness
+    end
+else
+    parameters(Access=private)    
+        p_init_used = p_init + (A.density*(A.depth+A.rig_elev)*g); % Wall thickness
+    end
+end
+
+
+components(ExternalAccess=observe)
+       RT1 = subsea.lines.ss_resistive_tube(ss_location=ss_location, d_in=d_in,...
+           length=l_half, roughness=roughness);
+       RT2 = subsea.lines.ss_resistive_tube(ss_location=ss_location, d_in=d_in,...
+           length=l_half, roughness=roughness);
+       CC1 = subsea.lines.ss_constant_chamber(ch_sp = false, d_in=d_in, D_out=D_out,...
+           length=length, p_init=p_init_used, wall_type=wall_type, Young_modulus=Young_modulus,...
+           time_const=time_const, k_sh=k_sh);
+end
+
+connections
+     connect(RT1.A,A);
+     connect(RT1.B, RT2.A, CC1.A, HC);
+     connect(RT2.B,B);
+end
+
+end
+
+

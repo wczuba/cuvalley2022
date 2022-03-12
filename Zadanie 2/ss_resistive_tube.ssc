@@ -1,0 +1,73 @@
+component ss_resistive_tube < subsea.branch
+% Hydraulic Resistive Tube: 1.0 
+% This block models hydraulic pipelines with circular cross sections 
+% and accounts for resistive property only. 
+% To account for local resistances such as bends, fittings, inlet and 
+% outlet losses, and so on, all the resistances are converted into their
+% equivalent lengths, and then the total length of all the resistances is
+% added to the pipe geometrical length.
+%
+% Connections A and B are hydraulic conserving ports. The block positive
+% direction is from port A to port B. This means that the flow rate is
+% positive if fluid flows from A to B, and the pressure loss is determined
+% as p = p_A - p_B.
+%
+% Copyright 2020 Astori sp. z o.o
+
+parameters
+    % Mask parameter visibilities are customized by a second file that is
+    % not available to users. If you copy and publish this Simscape(TM) file
+    % inside your own custom library, then drop-down menus and selective 
+    % parameter visibilities will be lost.
+
+    ss_location = true;           % Is located subsea??
+    d_in      = { 5.17, 'mm' };   % Tube internal diameter
+    s_factor  = { 64, '1' };      % Laminar friction constant for Darcy friction factor
+    length    = { 5, 'm' };       % Tube length
+    length_ad = { 0, 'm' };       % Aggregate equivalent length of local resistances
+    roughness = { 15e-6, 'm' };   % Internal surface roughness height
+    Re_lam    = { 2000, '1' };    % Laminar flow upper margin
+    Re_turb   = { 4000, '1' };    % Turbulent flow lower margin
+end
+    
+parameters(Access=private)
+    length_eff    = length + length_ad;        % Effective tube length
+    area_         = pi*d_in^2/4;
+    D_h_          = d_in;
+    rel_roughness = roughness/D_h_; % Relative roughness and proportionality coefficient
+   
+    
+end
+
+equations
+    % Assertions
+    assert(d_in > 0)
+    assert(s_factor > 0)
+    assert(length > 0)
+    assert(length_ad >= 0)
+    assert(roughness >= 0)
+    assert(Re_lam > 0)
+    assert(Re_turb > Re_lam)
+    
+    let
+        dir = if ge(q,0), 1 else -1 end; % Flow direction, no zero crossing
+        viscosity = if ss_location == 1, A.viscosity_subsea...
+                    else A.viscosity_topside end;
+        Re  = q*dir*D_h_/area_/viscosity;
+        
+        % Friction coefficient in turbulent regime
+        friction_coefficient = if le(Re, Re_lam/10), 0
+                               else 1/(-1.8*log10( 6.9/Re + (rel_roughness/3.7)^1.11))^2
+                               end;
+        % Pressure drop
+        dp_laminar   = s_factor*viscosity*length_eff/D_h_^2/area_/2*A.density*q;
+        dp_turbulent = friction_coefficient * length_eff/D_h_/area_^2/2*A.density*q*q*dir;
+        pr_loss = simscape.function.blend(dp_laminar,dp_turbulent,Re_lam,Re_turb,Re);
+    in
+        p == pr_loss;
+        
+    end
+  
+end
+
+end
